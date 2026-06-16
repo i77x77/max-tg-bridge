@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
@@ -35,6 +36,8 @@ client = Client(phone=MAX_PHONE, work_dir="cache", session_name="session.db")
 
 # max_chat_id (str) -> tg_thread_id (int)
 _mapping: dict[str, int] = {}
+_start_time: datetime | None = None
+_last_max_message: datetime | None = None
 
 
 def _load_mapping() -> None:
@@ -166,6 +169,8 @@ async def _sync_all_chats() -> None:
 
 @client.on_start()
 async def on_start(c: Client) -> None:
+    global _start_time
+    _start_time = datetime.now(timezone.utc)
     my_id = c.me.contact.id if c.me else "?"
     logger.info("MAX connected, my id=%s", my_id)
     _load_mapping()
@@ -185,6 +190,9 @@ async def on_max_message(message: Message, c: Client) -> None:
     my_id = c.me.contact.id if c.me else None
     if my_id and message.sender == my_id:
         return
+
+    global _last_max_message
+    _last_max_message = datetime.now(timezone.utc)
 
     title = await _chat_title(message.chat_id, sender_id=message.sender)
     thread_id = await get_or_create_topic(message.chat_id, title)
@@ -233,6 +241,34 @@ async def on_max_message(message: Message, c: Client) -> None:
 
 
 # ── TG → MAX ──────────────────────────────────────────────
+
+@dp.message(F.chat.id == TG_GROUP_ID, F.text == "/status")
+async def on_status(msg: TGMessage) -> None:
+    now = datetime.now(timezone.utc)
+
+    if _start_time:
+        delta = now - _start_time
+        h, rem = divmod(int(delta.total_seconds()), 3600)
+        m, s = divmod(rem, 60)
+        uptime = f"{h}ч {m}м {s}с"
+    else:
+        uptime = "неизвестно"
+
+    if _last_max_message:
+        delta = now - _last_max_message
+        mins = int(delta.total_seconds() // 60)
+        last_msg = f"{mins} мин назад" if mins > 0 else "только что"
+    else:
+        last_msg = "нет"
+
+    text = (
+        f"✅ Работает\n"
+        f"⏱ Uptime: {uptime}\n"
+        f"💬 Чатов: {len(_mapping)}\n"
+        f"📨 Последнее сообщение из MAX: {last_msg}"
+    )
+    await msg.reply(text)
+
 
 @dp.message(F.chat.id == TG_GROUP_ID, F.message_thread_id.is_not(None), ~F.from_user.is_bot)
 async def on_tg_message(msg: TGMessage) -> None:
