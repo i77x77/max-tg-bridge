@@ -103,7 +103,7 @@ def _user_display_name(user) -> str | None:
     return None
 
 
-async def _chat_title(max_chat_id: int) -> str:
+async def _chat_title(max_chat_id: int, sender_id: int | None = None) -> str:
     chats = client.chats or []
     my_id = client.me.contact.id if client.me else None
     for chat in chats:
@@ -122,10 +122,14 @@ async def _chat_title(max_chat_id: int) -> str:
             name = _user_display_name(user)
             if name:
                 return name
-        # Нет имени — сервисный аккаунт (коды, уведомления)
-        # Показываем ID чтобы было понятно что это
         return f"Сервис {max_chat_id}"
-    return f"Сервис {max_chat_id}"
+
+    # Чат ещё не в кеше — пробуем имя отправителя
+    if sender_id and sender_id != my_id:
+        name = await _sender_name(sender_id)
+        if name and not name.isdigit():
+            return name
+    return f"Чат {max_chat_id}"
 
 
 async def _sender_name(sender_id: int) -> str:
@@ -178,7 +182,7 @@ async def on_max_message(message: Message, c: Client) -> None:
     if my_id and message.sender == my_id:
         return
 
-    title = await _chat_title(message.chat_id)
+    title = await _chat_title(message.chat_id, sender_id=message.sender)
     thread_id = await get_or_create_topic(message.chat_id, title)
 
     personal = _is_personal_chat(message.chat_id)
