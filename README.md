@@ -10,66 +10,62 @@
 ## Требования
 
 - Python 3.11+
-- Telegram-бот с правами администратора в супергруппе с включёнными темами (Topics)
+- Telegram-бот с правами администратора в супергруппе с включёнными Topics
 - Аккаунт MAX
 
-## Быстрый старт (локально)
+---
+
+## Развёртывание на сервере
+
+### 1. Клонировать репозиторий
 
 ```bash
-git clone <repo-url>
-cd max-tg-bridge
-
-pip install aiogram pymax python-dotenv
-
-cp .env.example .env
-# отредактируйте .env
-python main.py
+git clone https://github.com/i77x77/max-tg-bridge.git /root/max-tg-bridge
+cd /root/max-tg-bridge
 ```
 
-При первом запуске `pymax` запросит код подтверждения из MAX — введите его в терминал. Сессия сохраняется в `cache/session.db`, повторная авторизация не нужна.
-
-## Переменные окружения
-
-| Переменная     | Пример                          | Описание                                      |
-|----------------|---------------------------------|-----------------------------------------------|
-| `MAX_PHONE`    | `+79990000000`                  | Номер телефона MAX-аккаунта                   |
-| `TG_BOT_TOKEN` | `1234567890:AAF...`             | Токен бота ([@BotFather](https://t.me/BotFather)) |
-| `TG_GROUP_ID`  | `-100123456789`                 | ID супергруппы Telegram                       |
-
-Узнать `TG_GROUP_ID` можно, добавив бота [@username_to_id_bot](https://t.me/username_to_id_bot) в группу или посмотрев через веб-версию Telegram.
-
-## Деплой на сервер (systemd)
-
-### 1. Подготовка
+### 2. Создать виртуальное окружение и установить зависимости
 
 ```bash
-# На сервере
-sudo apt update && sudo apt install -y python3 python3-pip git
-
-git clone <repo-url> /opt/max-tg-bridge
-cd /opt/max-tg-bridge
-pip3 install aiogram pymax python-dotenv
-
-cp .env.example .env
-nano .env   # заполните переменные
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### 2. Первый запуск — авторизация в MAX
-
-Первый раз нужно запустить вручную, чтобы ввести код из MAX:
+### 3. Настроить переменные окружения
 
 ```bash
-cd /opt/max-tg-bridge
+cp .env.example .env
+nano .env
+```
+
+| Переменная      | Пример              | Описание                                              |
+|-----------------|---------------------|-------------------------------------------------------|
+| `MAX_PHONE`     | `+79990000000`      | Номер телефона MAX-аккаунта                           |
+| `TG_BOT_TOKEN`  | `1234567890:AAF...` | Токен бота ([@BotFather](https://t.me/BotFather))    |
+| `TG_GROUP_ID`   | `-100123456789`     | ID супергруппы Telegram                               |
+| `SYNC_ON_START` | `false`             | `true` — создать все топики при старте, `false` — по первому сообщению |
+
+### 4. Первый запуск — авторизация в MAX
+
+Нужно запустить вручную один раз, чтобы ввести код подтверждения из MAX:
+
+```bash
+source venv/bin/activate
 python3 main.py
-# Введите код подтверждения, дождитесь "Sync done, watching for messages..."
-# Ctrl+C
 ```
 
-После этого сессия сохранена в `cache/session.db` и бот больше не будет спрашивать код.
+Введите код, дождитесь строки `watching for messages...` — затем `Ctrl+C`.
 
-### 3. Systemd-сервис
+Сессия сохраняется в `cache/session.db` и повторная авторизация не нужна.
 
-Создайте файл `/etc/systemd/system/max-tg-bridge.service`:
+### 5. Создать systemd-сервис
+
+```bash
+nano /etc/systemd/system/max-tg-bridge.service
+```
+
+Содержимое файла:
 
 ```ini
 [Unit]
@@ -77,11 +73,11 @@ Description=MAX to Telegram Bridge
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/max-tg-bridge
-ExecStart=/usr/bin/python3 main.py
+WorkingDirectory=/root/max-tg-bridge
+ExecStart=/root/max-tg-bridge/venv/bin/python3 main.py
 Restart=on-failure
 RestartSec=10
-EnvironmentFile=/opt/max-tg-bridge/.env
+EnvironmentFile=/root/max-tg-bridge/.env
 StandardOutput=journal
 StandardError=journal
 
@@ -89,32 +85,56 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
+### 6. Запустить и включить автозапуск
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable max-tg-bridge
 sudo systemctl start max-tg-bridge
+```
 
-# Проверить статус и логи:
+Проверить статус:
+
+```bash
 sudo systemctl status max-tg-bridge
 sudo journalctl -u max-tg-bridge -f
 ```
 
-### Обновление
+---
+
+## Обновление
 
 ```bash
-cd /opt/max-tg-bridge
+cd /root/max-tg-bridge
 git pull
+pip install -r requirements.txt
 sudo systemctl restart max-tg-bridge
 ```
 
+---
+
+## Команды бота
+
+Написать `/status` в Telegram-группе — бот ответит:
+
+```
+✅ Работает
+⏱ Uptime: 2ч 15м 30с
+💬 Чатов: 12
+📨 Последнее сообщение из MAX: 3 мин назад
+```
+
+---
+
 ## Файлы состояния
 
-| Путь                  | Содержимое                                      |
-|-----------------------|-------------------------------------------------|
-| `cache/session.db`    | Сессия MAX (не удалять — потребует переавторизации) |
-| `cache/topics.json`   | Маппинг MAX chat ID → Telegram thread ID        |
+| Путь                | Содержимое                                              |
+|---------------------|---------------------------------------------------------|
+| `cache/session.db`  | Сессия MAX (не удалять — потребует переавторизации)    |
+| `cache/topics.json` | Маппинг MAX chat ID → Telegram thread ID               |
+
+---
 
 ## Ограничения
 
-- Видео и прочие файлы из MAX пересылаются только как текстовые плейсхолдеры (`[видео]`, `[файл]`) — pymax не предоставляет прямых ссылок для скачивания этих типов.
-- Бот игнорирует свои собственные сообщения в Telegram (фильтр `~F.from_user.is_bot`).
+- Видео и прочие файлы из MAX пересылаются как плейсхолдеры (`[видео]`, `[файл]`) — pymax не предоставляет прямых ссылок для скачивания.
