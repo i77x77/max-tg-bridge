@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 MAX_PHONE = os.getenv("MAX_PHONE")
 TG_TOKEN = os.getenv("TG_BOT_TOKEN")
 TG_GROUP_ID = int(os.getenv("TG_GROUP_ID", "0"))
+SYNC_ON_START = os.getenv("SYNC_ON_START", "true").lower() in ("1", "true", "yes")
 
 MAPPING_FILE = Path("cache/topics.json")
 
@@ -168,8 +169,11 @@ async def on_start(c: Client) -> None:
     my_id = c.me.contact.id if c.me else "?"
     logger.info("MAX connected, my id=%s", my_id)
     _load_mapping()
-    await _sync_all_chats()
-    logger.info("Sync done, watching for messages...")
+    if SYNC_ON_START:
+        await _sync_all_chats()
+        logger.info("Sync done, watching for messages...")
+    else:
+        logger.info("Sync skipped (SYNC_ON_START=false), topics will be created on first message")
 
 
 @client.on_message()
