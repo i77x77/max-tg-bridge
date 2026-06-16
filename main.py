@@ -75,6 +75,15 @@ async def get_or_create_topic(max_chat_id: int, title: str) -> int:
     return thread_id
 
 
+def _is_personal_chat(max_chat_id: int) -> bool:
+    chats = client.chats or []
+    my_id = client.me.contact.id if client.me else None
+    for chat in chats:
+        if chat.id == max_chat_id:
+            return not chat.title
+    return False
+
+
 def _user_display_name(user) -> str | None:
     if not user:
         return None
@@ -164,9 +173,17 @@ async def on_max_message(message: Message, c: Client) -> None:
     if message.chat_id is None:
         return
 
+    # Пропускаем свои сообщения — они уже отправлены через TG→MAX
+    my_id = c.me.contact.id if c.me else None
+    if my_id and message.sender == my_id:
+        return
+
     title = await _chat_title(message.chat_id)
     thread_id = await get_or_create_topic(message.chat_id, title)
-    name = await _sender_name(message.sender) if message.sender else "Unknown"
+
+    personal = _is_personal_chat(message.chat_id)
+    if not personal:
+        name = await _sender_name(message.sender) if message.sender else "Unknown"
 
     photos = [a for a in message.attaches if isinstance(a, PhotoAttachment)]
     videos = [a for a in message.attaches if isinstance(a, VideoAttachment)]
@@ -175,9 +192,15 @@ async def on_max_message(message: Message, c: Client) -> None:
 
     send_kw = {"chat_id": TG_GROUP_ID, "message_thread_id": thread_id}
 
+    def _fmt(text: str | None, label: str | None = None) -> str:
+        body = label or text or ""
+        if personal:
+            return body
+        return f"{name}: {body}" if body else name
+
     try:
         if photos:
-            caption = f"{name}: {message.text}" if message.text else name
+            caption = _fmt(message.text)
             await bot.send_photo(
                 **send_kw,
                 photo=URLInputFile(photos[0].base_url),
@@ -186,16 +209,16 @@ async def on_max_message(message: Message, c: Client) -> None:
             for photo in photos[1:]:
                 await bot.send_photo(**send_kw, photo=URLInputFile(photo.base_url))
         elif message.text:
-            await bot.send_message(**send_kw, text=f"{name}: {message.text}")
+            await bot.send_message(**send_kw, text=_fmt(message.text))
         elif not has_media:
             return
 
         for v in videos:
             label = getattr(v, "file_name", None) or "видео"
-            await bot.send_message(**send_kw, text=f"{name}: [{label}]")
+            await bot.send_message(**send_kw, text=_fmt(None, f"[{label}]"))
         for f in files:
             label = getattr(f, "file_name", None) or "файл"
-            await bot.send_message(**send_kw, text=f"{name}: [{label}]")
+            await bot.send_message(**send_kw, text=_fmt(None, f"[{label}]"))
 
     except Exception as e:
         logger.error("Failed to forward message from %s: %s", title, e)
